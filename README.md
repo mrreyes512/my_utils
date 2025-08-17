@@ -8,9 +8,7 @@ A collection of personal automation scripts and utilities to streamline daily wo
 my_utils/
 ├── scripts/          # Standalone executable scripts
 ├── utils/            # Python utility modules and libraries
-├── prompts/          # AI/LLM prompt files
-├── tests/            # Test files
-└── log/              # Log files
+└── prompts/          # AI/LLM prompt files
 ```
 
 ## 🚀 Scripts Overview
