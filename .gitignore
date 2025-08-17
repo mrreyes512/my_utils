@@ -130,6 +130,18 @@ ENV/
 env.bak/
 venv.bak/
 
+# Personal crontab with sensitive data
+new_crontab.txt
+
+# macOS
+.DS_Store
+
+# CSV output files
+*.csv
+
+# Personal logs
+my_utils.log
+
 # Spyder project settings
 .spyderproject
 .spyproject

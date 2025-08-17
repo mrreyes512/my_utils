@@ -1,0 +1,49 @@
+DATE=date +%Y-%m-%d
+
+PATH="/bin:/usr/bin/:/opt/homebrew/bin:/Users/YOUR_USERNAME/dev/my_utils:$PATH"
+#MAILTO="your.email@domain.com"
+MAILTO=""
+
+## My Calendar
+## ========================================================================
+*/5 * * * * /Users/YOUR_USERNAME/dev/my_utils/scripts/ical.sh
+*/5 * * * * /Users/YOUR_USERNAME/dev/my_utils/scripts/ical.sh 1
+*/5 * * * * /Users/YOUR_USERNAME/dev/my_utils/scripts/ical.sh 2
+*/5 * * * * /Users/YOUR_USERNAME/dev/my_utils/scripts/ical.sh 3
+
+## My Time Logging
+## ========================================================================
+VENV="/Users/YOUR_USERNAME/.local/share/virtualenvs/my_utils-XXXXXXXX/bin/python"
+WORK_DIR="/Users/YOUR_USERNAME/dev/my_utils"
+LOG_DIR="/Users/YOUR_USERNAME/logs/timeflip"
+
+# Every night at 23:55
+55 23 * * * cd $WORK_DIR && $VENV scripts/timeflip.py -d $(${DATE}) > $LOG_DIR/$(${DATE})_task_log.txt 2>&1
+
+## Team Rundowns
+## ========================================================================
+VENV="/Users/YOUR_USERNAME/.local/share/virtualenvs/team_run_down-XXXXXXXX/bin/python3"
+WORK_DIR="/Users/YOUR_USERNAME/dev/team_run_down"
+# Note: GH_TOKEN and WEBEX_TEAMS_ACCESS_TOKEN should be set in environment or .env file
+
+# Monday at 11a
+0 11 * * 3 cd $WORK_DIR && $VENV individual_report.py -u Mark --notify your.email@domain.com >> /tmp/individual_report.log 2>&1
+#0 11 * * 1 cd $WORK_DIR && $VENV individual_report.py -u Mark --notify other.email@domain.com >> /tmp/individual_report.log 2>&1
+
+## Weather Report 
+## ========================================================================
+VENV="/Users/YOUR_USERNAME/.local/share/virtualenvs/weather_bot-XXXXXXXX/bin/python3"
+WORK_DIR="/Users/YOUR_USERNAME/dev/weather_bot"
+# Note: WEBEX_TOKEN should be set in environment or .env file
+
+# Wed at 07:55
+05 8 * * 3 cd $WORK_DIR && $VENV weather_ai.py
+
+## GORUCK Workout Motivation
+## ========================================================================
+VENV="/Users/YOUR_USERNAME/dev/my_utils/.venv/bin/python"
+WORK_DIR="/Users/YOUR_USERNAME/dev/my_utils"
+LOG_DIR="/Users/YOUR_USERNAME/logs/goruck"
+
+# Monday through Friday at 8:30 AM - Gordon Ramsay GORUCK Workout Motivation
+30 8 * * 1-5 cd $WORK_DIR && $VENV scripts/goruck_wod.py --gordon --webex > $LOG_DIR/$(${DATE})_goruck_motivation.log 2>&1
