@@ -11,6 +11,11 @@ pendulum = "*"
 garminconnect = "*"
 tabulate = "*"
 pandas = "*"
+numpy = "*"
+coloredlogs = "*"
+webexteamssdk = "*"
+beautifulsoup4 = "*"
+openai = "*"
 
 [dev-packages]
 
