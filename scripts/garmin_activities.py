@@ -16,6 +16,7 @@ import pendulum
 import os
 import sys
 import subprocess
+import traceback
 from dotenv import load_dotenv
 
 # Add the parent directory to the path so we can import from utils
@@ -30,7 +31,7 @@ log = MY_Logger(log_level=logging.WARNING).get_logger()
 log.propagate = False
 
 # Set up environment variables
-load_dotenv()
+load_dotenv(verbose=False)  # Set verbose=False to suppress loading messages
 
 
 class GarminActivitiesFetcher:
@@ -232,31 +233,32 @@ class ActivityFormatter:
             activity_type = activity.get('activityType', {}).get('typeKey', 'Unknown')
             duration_str = self.format_duration(activity.get('duration', 0))
             distance_str = self.format_distance(activity.get('distance', 0))
+            activity_id = activity.get('activityId', '')
             
-            # Basic row
-            row = [date_str, time_str, activity_name, activity_type, duration_str, distance_str]
+            # Calculate pace for both detailed and basic view
+            avg_speed = activity.get('averageSpeed', 0)
+            pace_str = self.format_pace(avg_speed, activity.get('distance', 0), activity.get('duration', 0))
             
             if detailed:
-                # Add more detailed information
+                # Detailed row: Date, Time, Activity, Type, Duration, Distance, Calories, Pace, Avg Speed, Activity ID
                 calories = activity.get('calories', '')
-                avg_speed = activity.get('averageSpeed', 0)
-                pace_str = self.format_pace(avg_speed, activity.get('distance', 0), activity.get('duration', 0))
                 speed_str = self.format_speed(avg_speed)
-                activity_id = activity.get('activityId', '')
                 
-                row.extend([
-                    str(calories) if calories else '',
-                    pace_str,
-                    speed_str,
-                    str(activity_id) if activity_id else ''
-                ])
+                row = [
+                    date_str, time_str, activity_name, activity_type, duration_str, distance_str,
+                    str(calories) if calories else '', pace_str, speed_str, str(activity_id) if activity_id else ''
+                ]
+            else:
+                # Basic row: Date, Time, Activity, Distance, Pace, Activity ID
+                row = [date_str, time_str, activity_name, distance_str, pace_str, str(activity_id) if activity_id else '']
             
             table_data.append(row)
         
         # Define headers
-        headers = ['Date', 'Time', 'Activity', 'Type', 'Duration', 'Distance']
         if detailed:
-            headers.extend(['Calories', 'Pace', 'Avg Speed', 'Activity ID'])
+            headers = ['Date', 'Time', 'Activity', 'Type', 'Duration', 'Distance', 'Calories', 'Pace', 'Avg Speed', 'Activity ID']
+        else:
+            headers = ['Date', 'Time', 'Activity', 'Distance', 'Pace', 'Activity ID']
         
         # Create table
         table_str = tabulate(table_data, headers=headers, tablefmt='presto')
@@ -265,7 +267,7 @@ class ActivityFormatter:
 
     def display_activity_details(self, activity):
         """
-        Display detailed information about a single activity.
+        Display detailed information about a single activity using sectioned tables.
         
         Args:
             activity (dict): Activity details dictionary
@@ -277,251 +279,239 @@ class ActivityFormatter:
         # Extract the actual activity data from summaryDTO if it exists
         activity_data = activity.get('summaryDTO', activity)
         
-        print("\n" + "="*60)
+        print("\n" + "="*80)
         print("ACTIVITY DETAILS")
-        print("="*60)
+        print("="*80)
         
-        # Basic information
-        print(f"Name: {activity.get('activityName', 'Untitled')}")
+        # Meta Information Table
+        self._print_meta_table(activity, activity_data)
         
-        # Get activity type from nested structure
+        # Performance Metrics Table  
+        self._print_performance_table(activity_data)
+        
+        # Workout Details Table
+        self._print_workout_table(activity_data)
+        
+        # Location & Environment Table
+        self._print_location_table(activity_data)
+        
+        print("="*80)
+
+    def _print_meta_table(self, activity, activity_data):
+        """Print meta information table."""
+        meta_data = []
+        
+        # Activity name and type
+        activity_name = activity.get('activityName', 'Untitled')
         activity_type_dto = activity.get('activityTypeDTO', {})
         activity_type = activity_type_dto.get('typeKey', 'Unknown')
-        print(f"Type: {activity_type}")
+        activity_id = activity.get('activityId', '')
         
-        # Activity ID for reference
-        activity_id = activity.get('activityId')
+        meta_data.append(['Activity Name', activity_name])
+        meta_data.append(['Activity Type', activity_type])
         if activity_id:
-            print(f"Activity ID: {activity_id}")
+            meta_data.append(['Activity ID', str(activity_id)])
         
-        # Location
-        location = activity.get('locationName')
-        if location:
-            print(f"Location: {location}")
-        
-        # Description
-        description = activity.get('description')
-        if description:
-            print(f"Description: {description}")
-        
-        # Date and time from summaryDTO
+        # Date and time
         start_time = activity_data.get('startTimeLocal', '') or activity_data.get('startTimeGMT', '')
         if start_time:
             try:
                 dt = pendulum.parse(start_time)
-                print(f"Date: {dt.format('YYYY-MM-DD dddd')}")
-                print(f"Start Time: {dt.format('HH:mm:ss')}")
+                meta_data.append(['Date', dt.format('YYYY-MM-DD dddd')])
+                meta_data.append(['Start Time', dt.format('HH:mm:ss')])
             except Exception:
-                print(f"Start Time: {start_time}")
+                meta_data.append(['Start Time', start_time])
         
-        # Duration and distance
-        self._print_duration_distance(activity_data)
+        # Description
+        description = activity.get('description')
+        if description:
+            meta_data.append(['Description', description])
         
-        # Performance metrics
-        self._print_performance_metrics(activity_data)
-        
-        # Pace information
-        self._print_pace_info(activity_data)
-        
-        # Elevation and training effects
-        try:
-            self._print_elevation_training(activity_data)
-        except Exception as e:
-            print(f"Error in elevation section: {e}")
-        
-        # Additional metrics
-        try:
-            self._print_additional_metrics(activity_data)
-        except Exception as e:
-            print(f"Error in additional metrics section: {e}")
-        
-        print("="*60)
+        print("\n📊 META INFORMATION")
+        print(tabulate(meta_data, headers=['Field', 'Value'], tablefmt='presto'))
 
-    def _print_duration_distance(self, activity):
-        """Print duration and distance information."""
-        # Try multiple possible field names for duration
-        duration_seconds = (activity.get('duration') or 
-                          activity.get('elapsedDuration') or 
-                          activity.get('movingDuration') or 0)
+    def _print_performance_table(self, activity_data):
+        """Print performance metrics table."""
+        perf_data = []
+        
+        # Duration
+        duration_seconds = (activity_data.get('duration') or 
+                          activity_data.get('elapsedDuration') or 
+                          activity_data.get('movingDuration') or 0)
         
         if duration_seconds and duration_seconds > 0:
-            duration_seconds = int(duration_seconds)  # Ensure it's an integer
+            duration_seconds = int(duration_seconds)
             hours = duration_seconds // 3600
             minutes = (duration_seconds % 3600) // 60
             seconds = duration_seconds % 60
-            print(f"Duration: {hours:02d}:{minutes:02d}:{seconds:02d}")
+            perf_data.append(['Duration', f"{hours:02d}:{minutes:02d}:{seconds:02d}"])
         
         # Moving duration if different
-        moving_duration = activity.get('movingDuration')
+        moving_duration = activity_data.get('movingDuration')
         if moving_duration and moving_duration != duration_seconds and moving_duration > 0:
             moving_duration = int(moving_duration)
             hours = moving_duration // 3600
             minutes = (moving_duration % 3600) // 60
             seconds = moving_duration % 60
-            print(f"Moving Time: {hours:02d}:{minutes:02d}:{seconds:02d}")
+            perf_data.append(['Moving Time', f"{hours:02d}:{minutes:02d}:{seconds:02d}"])
         
-        # Try multiple possible field names for distance
-        distance_meters = (activity.get('distance') or 
-                         activity.get('totalDistance') or 0)
+        # Distance
+        distance_meters = (activity_data.get('distance') or 
+                         activity_data.get('totalDistance') or 0)
         
         if distance_meters and distance_meters > 0:
-            distance_miles = distance_meters / 1609.344  # Convert meters to miles
-            print(f"Distance: {distance_miles:.2f} mi")
-
-    def _print_performance_metrics(self, activity):
-        """Print performance metrics."""
-        calories = activity.get('calories')
+            distance_miles = distance_meters / 1609.344
+            perf_data.append(['Distance', f"{distance_miles:.2f} mi"])
+        
+        # Steps
+        steps = activity_data.get('steps')
+        if steps and float(steps) > 0:
+            perf_data.append(['Steps', f"{int(float(steps)):,}"])
+        
+        # Calories
+        calories = activity_data.get('calories')
         if calories:
-            print(f"Calories: {int(float(calories))}")
+            perf_data.append(['Calories', str(int(float(calories)))])
         
-        avg_hr = activity.get('averageHR')
-        max_hr = activity.get('maxHR')
-        min_hr = activity.get('minHR')
-        if avg_hr:
-            print(f"Average Heart Rate: {int(float(avg_hr))} bpm")
-        if max_hr:
-            print(f"Maximum Heart Rate: {int(float(max_hr))} bpm")
-        if min_hr:
-            print(f"Minimum Heart Rate: {int(float(min_hr))} bpm")
-        
-        # Use the available speed fields
-        avg_speed = activity.get('averageSpeed', 0) or activity.get('averageMovingSpeed', 0)
-        if avg_speed:
-            avg_speed = float(avg_speed)
-            avg_speed_mph = avg_speed * 2.237  # Convert m/s to mph
-            print(f"Average Speed: {avg_speed_mph:.2f} mph")
-        
-        max_speed = activity.get('maxSpeed', 0)
-        if max_speed:
-            max_speed = float(max_speed)
-            max_speed_mph = max_speed * 2.237  # Convert m/s to mph
-            print(f"Maximum Speed: {max_speed_mph:.2f} mph")
-
-    def _print_pace_info(self, activity):
-        """Print pace information."""
-        avg_speed = activity.get('averageSpeed', 0)
-        distance_meters = activity.get('distance', 0)
-        duration_seconds = activity.get('duration', 0)
-        
+        # Pace
+        avg_speed = activity_data.get('averageSpeed', 0)
         if avg_speed and distance_meters and duration_seconds:
             pace_str = self.format_pace(avg_speed, distance_meters, duration_seconds)
             if pace_str:
-                print(f"Average Pace: {pace_str}")
+                perf_data.append(['Average Pace', pace_str])
         
-        # Moving time vs elapsed time
-        moving_duration = activity.get('movingDuration')
-        if moving_duration and moving_duration != duration_seconds:
-            hours = moving_duration // 3600
-            minutes = (moving_duration % 3600) // 60
-            seconds = moving_duration % 60
-            print(f"Moving Time: {hours:02d}:{minutes:02d}:{seconds:02d}")
-            
-            if distance_meters:
-                distance_miles = distance_meters / 1609.344
-                moving_pace_min_per_mile = (moving_duration / 60) / distance_miles
-                minutes = int(moving_pace_min_per_mile)
-                seconds = int((moving_pace_min_per_mile - minutes) * 60)
-                print(f"Moving Pace: {minutes}:{seconds:02d}/mi")
+        # Speed
+        avg_speed = activity_data.get('averageSpeed', 0) or activity_data.get('averageMovingSpeed', 0)
+        if avg_speed:
+            avg_speed = float(avg_speed)
+            avg_speed_mph = avg_speed * 2.237
+            perf_data.append(['Average Speed', f"{avg_speed_mph:.2f} mph"])
+        
+        max_speed = activity_data.get('maxSpeed', 0)
+        if max_speed:
+            max_speed = float(max_speed)
+            max_speed_mph = max_speed * 2.237
+            perf_data.append(['Maximum Speed', f"{max_speed_mph:.2f} mph"])
+        
+        if perf_data:
+            print("\n🏃 PERFORMANCE METRICS")
+            print(tabulate(perf_data, headers=['Metric', 'Value'], tablefmt='presto'))
 
-    def _print_elevation_training(self, activity):
-        """Print elevation and training effect information."""
-        elevation_gain = activity.get('elevationGain')
-        elevation_loss = activity.get('elevationLoss')
+    def _print_workout_table(self, activity_data):
+        """Print workout details table."""
+        workout_data = []
+        
+        # Heart rate metrics
+        avg_hr = activity_data.get('averageHR')
+        max_hr = activity_data.get('maxHR')
+        min_hr = activity_data.get('minHR')
+        if avg_hr:
+            workout_data.append(['Average Heart Rate', f"{int(float(avg_hr))} bpm"])
+        if max_hr:
+            workout_data.append(['Maximum Heart Rate', f"{int(float(max_hr))} bpm"])
+        if min_hr:
+            workout_data.append(['Minimum Heart Rate', f"{int(float(min_hr))} bpm"])
+        
+        # Cadence
+        avg_running_cadence = (activity_data.get('avgRunningCadenceInStepsPerMinute') or 
+                              activity_data.get('averageRunCadence'))
+        max_running_cadence = (activity_data.get('maxRunningCadenceInStepsPerMinute') or 
+                              activity_data.get('maxRunCadence'))
+        if avg_running_cadence and float(avg_running_cadence) > 0:
+            workout_data.append(['Average Cadence', f"{int(float(avg_running_cadence))} steps/min"])
+        if max_running_cadence and float(max_running_cadence) > 0:
+            workout_data.append(['Maximum Cadence', f"{int(float(max_running_cadence))} steps/min"])
+        
+        # Elevation
+        elevation_gain = activity_data.get('elevationGain')
+        elevation_loss = activity_data.get('elevationLoss')
         if elevation_gain:
             elevation_gain = float(elevation_gain)
-            print(f"Elevation Gain: {elevation_gain:.0f} m ({elevation_gain * 3.28084:.0f} ft)")
+            workout_data.append(['Elevation Gain', f"{elevation_gain:.0f} m ({elevation_gain * 3.28084:.0f} ft)"])
         if elevation_loss:
             elevation_loss = float(elevation_loss)
-            print(f"Elevation Loss: {elevation_loss:.0f} m ({elevation_loss * 3.28084:.0f} ft)")
+            workout_data.append(['Elevation Loss', f"{elevation_loss:.0f} m ({elevation_loss * 3.28084:.0f} ft)"])
         
-        min_elevation = activity.get('minElevation')
-        max_elevation = activity.get('maxElevation')
+        min_elevation = activity_data.get('minElevation')
+        max_elevation = activity_data.get('maxElevation')
         if min_elevation is not None:
             min_elevation = float(min_elevation)
-            print(f"Min Elevation: {min_elevation:.0f} m ({min_elevation * 3.28084:.0f} ft)")
+            workout_data.append(['Min Elevation', f"{min_elevation:.0f} m ({min_elevation * 3.28084:.0f} ft)"])
         if max_elevation is not None:
             max_elevation = float(max_elevation)
-            print(f"Max Elevation: {max_elevation:.0f} m ({max_elevation * 3.28084:.0f} ft)")
+            workout_data.append(['Max Elevation', f"{max_elevation:.0f} m ({max_elevation * 3.28084:.0f} ft)"])
         
-        # Training effects (look for different field names)
-        aerobic_effect = (activity.get('aerobicTrainingEffect') or 
-                         activity.get('aerobicTrainingEffectMessage'))
-        anaerobic_effect = (activity.get('anaerobicTrainingEffect') or 
-                           activity.get('anaerobicTrainingEffectMessage'))
+        # Training effects
+        aerobic_effect = (activity_data.get('aerobicTrainingEffect') or 
+                         activity_data.get('aerobicTrainingEffectMessage'))
+        anaerobic_effect = (activity_data.get('anaerobicTrainingEffect') or 
+                           activity_data.get('anaerobicTrainingEffectMessage'))
         if aerobic_effect:
-            print(f"Aerobic Training Effect: {aerobic_effect}")
+            workout_data.append(['Aerobic Training Effect', str(aerobic_effect)])
         if anaerobic_effect:
-            print(f"Anaerobic Training Effect: {anaerobic_effect}")
+            workout_data.append(['Anaerobic Training Effect', str(anaerobic_effect)])
         
-        training_effect_label = activity.get('trainingEffectLabel')
+        training_effect_label = activity_data.get('trainingEffectLabel')
         if training_effect_label:
-            print(f"Training Effect: {training_effect_label}")
-
-    def _print_additional_metrics(self, activity):
-        """Print additional activity metrics."""
-        print()  # Add some spacing
-        
-        # Steps (for activities that track them)
-        steps = activity.get('steps')
-        if steps:
-            print(f"Steps: {int(float(steps)):,}")
-        
-        # Cadence information (look for available field names)
-        avg_running_cadence = (activity.get('avgRunningCadenceInStepsPerMinute') or 
-                              activity.get('averageRunCadence'))
-        max_running_cadence = (activity.get('maxRunningCadenceInStepsPerMinute') or 
-                              activity.get('maxRunCadence'))
-        if avg_running_cadence:
-            print(f"Average Cadence: {int(float(avg_running_cadence))} steps/min")
-        if max_running_cadence:
-            print(f"Maximum Cadence: {int(float(max_running_cadence))} steps/min")
-        
-        # GPS coordinates
-        start_latitude = activity.get('startLatitude')
-        start_longitude = activity.get('startLongitude')
-        end_latitude = activity.get('endLatitude')
-        end_longitude = activity.get('endLongitude')
-        
-        if start_latitude and start_longitude:
-            print(f"Start Location: {float(start_latitude):.6f}, {float(start_longitude):.6f}")
-        if end_latitude and end_longitude:
-            print(f"End Location: {float(end_latitude):.6f}, {float(end_longitude):.6f}")
-        
-        # Special metrics for rucking
-        begin_pack_weight = activity.get('beginPackWeight')
-        if begin_pack_weight:
-            # Convert from grams to pounds
-            weight_lbs = float(begin_pack_weight) / 453.592
-            print(f"Pack Weight: {weight_lbs:.1f} lbs")
+            workout_data.append(['Training Effect', str(training_effect_label)])
         
         # Intensity minutes
-        moderate_intensity = activity.get('moderateIntensityMinutes')
-        vigorous_intensity = activity.get('vigorousIntensityMinutes')
-        if moderate_intensity:
-            print(f"Moderate Intensity Minutes: {int(float(moderate_intensity))}")
-        if vigorous_intensity:
-            print(f"Vigorous Intensity Minutes: {int(float(vigorous_intensity))}")
+        moderate_intensity = activity_data.get('moderateIntensityMinutes')
+        vigorous_intensity = activity_data.get('vigorousIntensityMinutes')
+        if moderate_intensity and float(moderate_intensity) > 0:
+            workout_data.append(['Moderate Intensity Minutes', str(int(float(moderate_intensity)))])
+        if vigorous_intensity and float(vigorous_intensity) > 0:
+            workout_data.append(['Vigorous Intensity Minutes', str(int(float(vigorous_intensity)))])
         
-        # Body battery and other metrics
-        body_battery_diff = activity.get('differenceBodyBattery')
-        if body_battery_diff:
-            print(f"Body Battery Change: {int(float(body_battery_diff))}")
+        # Special equipment metrics
+        begin_pack_weight = activity_data.get('beginPackWeight')
+        if begin_pack_weight:
+            weight_lbs = float(begin_pack_weight) / 453.592
+            workout_data.append(['Pack Weight', f"{weight_lbs:.1f} lbs"])
         
-        water_estimated = activity.get('waterEstimated')
-        if water_estimated:
-            print(f"Water Loss Estimate: {float(water_estimated):.1f} L")
+        # Body metrics
+        body_battery_diff = activity_data.get('differenceBodyBattery')
+        if body_battery_diff and abs(float(body_battery_diff)) > 0:
+            workout_data.append(['Body Battery Change', str(int(float(body_battery_diff)))])
         
-        bmr_calories = activity.get('bmrCalories')
-        if bmr_calories:
-            print(f"BMR Calories: {int(float(bmr_calories))}")
+        water_estimated = activity_data.get('waterEstimated')
+        if water_estimated and float(water_estimated) > 0:
+            workout_data.append(['Water Loss Estimate', f"{float(water_estimated):.1f} L"])
+        
+        bmr_calories = activity_data.get('bmrCalories')
+        if bmr_calories and float(bmr_calories) > 0:
+            workout_data.append(['BMR Calories', str(int(float(bmr_calories)))])
         
         # Workout feel and RPE
-        workout_feel = activity.get('directWorkoutFeel')
-        workout_rpe = activity.get('directWorkoutRpe')
+        workout_feel = activity_data.get('directWorkoutFeel')
+        workout_rpe = activity_data.get('directWorkoutRpe')
         if workout_feel:
-            print(f"Workout Feel: {workout_feel}")
+            workout_data.append(['Workout Feel', str(workout_feel)])
         if workout_rpe:
-            print(f"Workout RPE: {workout_rpe}")
+            workout_data.append(['Workout RPE', str(workout_rpe)])
+        
+        if workout_data:
+            print("\n💪 WORKOUT DETAILS")
+            print(tabulate(workout_data, headers=['Metric', 'Value'], tablefmt='presto'))
+
+    def _print_location_table(self, activity_data):
+        """Print location and environment table."""
+        location_data = []
+        
+        # GPS coordinates
+        start_latitude = activity_data.get('startLatitude')
+        start_longitude = activity_data.get('startLongitude')
+        end_latitude = activity_data.get('endLatitude')
+        end_longitude = activity_data.get('endLongitude')
+        
+        if start_latitude and start_longitude:
+            location_data.append(['Start Location', f"{float(start_latitude):.6f}, {float(start_longitude):.6f}"])
+        if end_latitude and end_longitude:
+            location_data.append(['End Location', f"{float(end_latitude):.6f}, {float(end_longitude):.6f}"])
+        
+        if location_data:
+            print("\n📍 LOCATION & ENVIRONMENT")
+            print(tabulate(location_data, headers=['Field', 'Value'], tablefmt='presto'))
 
     def display_activities_list(self, activities, show_ids=False):
         """
@@ -581,7 +571,13 @@ def main(args):
                     # Display as table
                     table = formatter.format_activities_table(activities, detailed=args.detailed)
                     print("\n" + table)
-                    print(f"\nTotal activities: {len(activities)}")
+                    
+                    # Calculate total distance
+                    total_distance_meters = sum(activity.get('distance', 0) for activity in activities)
+                    total_distance_miles = total_distance_meters / 1609.344
+                    
+                    print(f"\n  Total distance: {total_distance_miles:.2f} miles")
+                    print(f"Total activities: {len(activities)}")
                 else:
                     # Display as simple list
                     formatter.display_activities_list(activities, show_ids=args.show_ids)
