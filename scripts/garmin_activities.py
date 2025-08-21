@@ -37,34 +37,58 @@ load_dotenv(verbose=False)  # Set verbose=False to suppress loading messages
 class GarminActivitiesFetcher:
     """Class to handle Garmin Connect API interactions."""
     
-    def __init__(self):
+    def __init__(self, tokenstore="~/.garminconnect"):
         self.client = None
+        self.tokenstore = os.path.expanduser(tokenstore)
         
     def authenticate(self):
         """
         Authenticate with Garmin Connect using credentials from environment variables.
+        Uses token-based authentication for better session management.
         
         Returns:
             bool: True if authentication successful, False otherwise
         """
         try:
-            # Get credentials from environment variables
-            email = os.environ.get("GARMIN_EMAIL")
-            password = os.environ.get("GARMIN_PASSWORD")
+            # Try to login using existing tokens first
+            log.info(f"Trying to login to Garmin Connect using token data from directory '{self.tokenstore}'...")
             
-            if not email or not password:
-                log.error("Garmin credentials not found. Please set GARMIN_EMAIL and GARMIN_PASSWORD environment variables.")
-                log.info("Add these to your .env file:")
-                log.info("GARMIN_EMAIL=your_email@example.com")
-                log.info("GARMIN_PASSWORD=your_password")
-                return False
-            
-            log.info("Authenticating with Garmin Connect...")
-            self.client = Garmin(email, password)
-            self.client.login()
-            log.info("Successfully authenticated with Garmin Connect")
-            
-            return True
+            try:
+                self.client = Garmin()
+                self.client.login(self.tokenstore)
+                log.info("Successfully authenticated with Garmin Connect using stored tokens")
+                return True
+                
+            except (FileNotFoundError, OSError):
+                # Tokens not found or expired, need to login with credentials
+                log.info("Login tokens not present or expired, login with credentials to generate new tokens...")
+                
+                # Get credentials from environment variables
+                email = os.environ.get("GARMIN_EMAIL")
+                password = os.environ.get("GARMIN_PASSWORD")
+                
+                if not email or not password:
+                    log.error("Garmin credentials not found. Please set GARMIN_EMAIL and GARMIN_PASSWORD environment variables.")
+                    log.info("Add these to your .env file:")
+                    log.info("GARMIN_EMAIL=your_email@example.com")
+                    log.info("GARMIN_PASSWORD=your_password")
+                    return False
+                
+                # Login with credentials and save tokens
+                self.client = Garmin(email=email, password=password)
+                result = self.client.login()
+                
+                # Handle MFA if required
+                if isinstance(result, tuple) and result[0] == "needs_mfa":
+                    mfa_code = input("MFA one-time code: ")
+                    self.client.resume_login(result[1], mfa_code)
+                
+                # Save tokens for future use
+                self.client.garth.dump(self.tokenstore)
+                log.info(f"OAuth tokens stored in '{self.tokenstore}' directory for future use")
+                log.info("Successfully authenticated with Garmin Connect")
+                
+                return True
             
         except Exception as e:
             log.error(f"Failed to authenticate with Garmin Connect: {e}")
@@ -132,13 +156,24 @@ class GarminActivitiesFetcher:
             return None
 
     def logout(self):
-        """Clean logout from Garmin Connect."""
+        """
+        Clear authentication tokens instead of calling deprecated logout.
+        This removes the stored tokens to effectively 'logout'.
+        """
         try:
-            if self.client:
-                self.client.logout()
-                log.info("Logged out from Garmin Connect")
+            if os.path.exists(self.tokenstore):
+                # Remove the token directory and all its contents
+                for root, dirs, files in os.walk(self.tokenstore, topdown=False):
+                    for name in files:
+                        os.remove(os.path.join(root, name))
+                    for name in dirs:
+                        os.rmdir(os.path.join(root, name))
+                os.rmdir(self.tokenstore)
+                log.info(f"Removed stored login tokens from: {self.tokenstore}")
+            else:
+                log.info("No stored tokens found to remove")
         except Exception as e:
-            log.warning(f"Error during logout: {e}")
+            log.warning(f"Error removing tokens: {e}")
 
 
 class ActivityFormatter:
@@ -589,8 +624,10 @@ def main(args):
     except Exception as e:
         log.error(f"Unexpected error: {e}")
     finally:
-        # Clean logout
-        garmin_client.logout()
+        # Clean token removal (optional - tokens remain valid for future use)
+        # Uncomment the next line if you want to remove tokens on exit
+        # garmin_client.logout()
+        pass
 
 
 if __name__ == "__main__":
