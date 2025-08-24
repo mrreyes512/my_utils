@@ -16,6 +16,7 @@ my_utils/
 ### `scripts/`
 
 - **`goruck_wod.py`** - Fetches daily GORUCK workouts with optional Gordon Ramsay-style AI motivation and WebEx notifications
+- **`garmin_activities.py`** - Fetches and displays Garmin Connect activities in table format with authentication support
 - **`timeflip.py`** - TimeFlip device integration for automated time tracking and logging
 - **`daily_calendar.sh`** - Daily calendar processing and notifications
 - **`ical.sh`** - iCal calendar synchronization and management
@@ -103,4 +104,19 @@ python scripts/goruck_wod.py -l --days 7
 ### Run TimeFlip data collection:
 ```bash
 python scripts/timeflip.py -d 2025-08-17
+```
+
+### Display Garmin Connect activities in table format:
+```bash
+python scripts/garmin_activities.py --days 7 --table
+```
+
+### Get detailed Garmin activities with performance metrics:
+```bash
+python scripts/garmin_activities.py --days 14 --table --detailed
+```
+
+### Filter activities by type (e.g., running, cycling):
+```bash
+python scripts/garmin_activities.py --activity-type running --days 30
 ```
