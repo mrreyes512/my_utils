@@ -36,8 +36,8 @@ def get_page1_workouts():
     all_workouts = []
     
     # Get both page 1 and page 2
-    # for page_num in [1, 2]:
-    for page_num in [4,5,6]:
+    for page_num in [1]:
+    # for page_num in [4,5,6]:
         if page_num == 1:
             url = "https://www.goruck.com/blogs/workouts"
         else:
